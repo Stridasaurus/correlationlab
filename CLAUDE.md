@@ -21,7 +21,7 @@ npx vitest run src/tests/correlation.test.ts
 
 **CorrelationLab** — a browser-only React + TypeScript SPA that lets users build a portfolio of financial assets, visualize rolling correlation matrices, and compare cumulative returns across time windows (3M–20Y).
 
-Deployed to GitHub Pages at `/claude-automation-project/` (set as Vite `base`).
+Deployed to GitHub Pages at `https://stridasaurus.github.io/correlationlab/` (Vite `base` is `/correlationlab/`).
 
 ## Data Sources
 
@@ -73,7 +73,7 @@ filteredReturns   — sliced to last RANGE_DAYS[rangePreset] entries,
 
 ## Preset Portfolios
 
-Six built-in presets in `PRESETS` (App.tsx). Each specifies `holdings[]` with allocations and a `totalValue` (inflation-adjusted for historical presets). `onLoadPreset` fetches all tickers in parallel, then computes `quantity = round((totalValue × allocation) / latestPrice, 2)` so the portfolio starts with realistic share counts.
+Eight built-in presets in `PRESETS` (App.tsx): Diversified Core, All-Weather, Crypto & Equities, US Sectors, 2008 Crisis, Tech Concentration, Inflation Trade, Factor Rotation. Each specifies `holdings[]` with allocations and a `totalValue` (inflation-adjusted for historical presets). `onLoadPreset` fetches all tickers in parallel and computes `quantity = round((totalValue × allocation) / latestPrice, 2)` so the portfolio starts with realistic share counts.
 
 ## Styling
 
