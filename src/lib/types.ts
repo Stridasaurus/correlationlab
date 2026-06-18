@@ -34,3 +34,14 @@ export interface HoldingWithWeight extends Holding {
   name: string;
   type: string;
 }
+
+export interface CustomTickerEntry {
+  closes: number[];
+  dates: string[];
+  name: string;
+  latestPrice: number;
+  synthetic: boolean;
+}
+
+export type RangePreset = '3M' | '6M' | '1Y' | '2Y';
+export type WindowDays = 30 | 60 | 90 | 180;

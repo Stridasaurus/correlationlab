@@ -3,9 +3,11 @@ import type { HoldingWithWeight } from '../lib/types';
 interface Props {
   holdings: HoldingWithWeight[];
   onQuantityChange: (ticker: string, qty: number) => void;
+  onRemove?: (ticker: string) => void;
+  removableTickers?: string[];
 }
 
-export default function HoldingsTable({ holdings, onQuantityChange }: Props) {
+export default function HoldingsTable({ holdings, onQuantityChange, onRemove, removableTickers = [] }: Props) {
   const totalValue = holdings.reduce((s, h) => s + h.value, 0);
 
   return (
@@ -29,7 +31,20 @@ export default function HoldingsTable({ holdings, onQuantityChange }: Props) {
               className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
             >
               <td className="px-4 py-3 font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                {h.ticker}
+                <div className="flex items-center gap-1.5">
+                  {h.ticker}
+                  {removableTickers.includes(h.ticker) && onRemove && (
+                    <button
+                      onClick={() => onRemove(h.ticker)}
+                      title={`Remove ${h.ticker}`}
+                      className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </td>
               <td className="px-4 py-3 text-gray-600 dark:text-gray-300 hidden sm:table-cell max-w-xs truncate">
                 {h.name}

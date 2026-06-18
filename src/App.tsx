@@ -1,10 +1,27 @@
-import { useState, useEffect, useCallback } from 'react';
-import type { CorrelationData, ReturnsData, PricesData, Holding, HoldingWithWeight } from './lib/types';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import type {
+  CorrelationData,
+  ReturnsData,
+  PricesData,
+  Holding,
+  HoldingWithWeight,
+  CustomTickerEntry,
+  RangePreset,
+  WindowDays,
+} from './lib/types';
+import { correlationMatrix, normalizedCumulativeReturns } from './lib/correlation';
+import {
+  fetchTickerData,
+  syntheticTicker,
+  alignToReferenceDates,
+} from './lib/fetchTicker';
 import HoldingsTable from './components/HoldingsTable';
 import CorrelationHeatmap from './components/CorrelationHeatmap';
 import ReturnsChart from './components/ReturnsChart';
 import PortfolioChart from './components/PortfolioChart';
 import SummaryStats from './components/SummaryStats';
+import RollingCorrelationPanel from './components/RollingCorrelationPanel';
+import TickerInput from './components/TickerInput';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -16,24 +33,38 @@ const DEFAULT_HOLDINGS: Holding[] = [
   { ticker: 'PRNHX', quantity: 15 },
 ];
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+const RANGE_DAYS: Record<RangePreset, number> = {
+  '3M': 63,
+  '6M': 126,
+  '1Y': 252,
+  '2Y': 504,
+};
+
+function SectionCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{title}</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+        {action}
+      </div>
       {children}
     </div>
   );
 }
 
 export default function App() {
-  const [dark, setDark] = useState(() =>
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
+  const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [holdings, setHoldings] = useState<Holding[]>(DEFAULT_HOLDINGS);
   const [correlationData, setCorrelationData] = useState<CorrelationData | null>(null);
   const [returnsData, setReturnsData] = useState<ReturnsData | null>(null);
   const [pricesData, setPricesData] = useState<PricesData | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // New feature state
+  const [rangePreset, setRangePreset] = useState<RangePreset>('2Y');
+  const [windowDays, setWindowDays] = useState<WindowDays>(90);
+  const [windowEndIdx, setWindowEndIdx] = useState<number>(0);
+  const [customTickers, setCustomTickers] = useState<Record<string, CustomTickerEntry>>({});
 
   useEffect(() => {
     if (dark) document.documentElement.classList.add('dark');
@@ -54,20 +85,147 @@ export default function App() {
       .catch((e) => setError(String(e)));
   }, []);
 
+  // ── Derived: merged series (static + custom tickers) ──────────────────────
+  const allDates = returnsData?.dates ?? [];
+
+  const mergedSeries = useMemo(() => {
+    if (!returnsData) return {};
+    const series: Record<string, number[]> = { ...returnsData.series };
+    for (const [ticker, entry] of Object.entries(customTickers)) {
+      // Align custom ticker closes to the full date array, then normalize
+      const aligned = alignToReferenceDates(
+        { dates: entry.dates, closes: entry.closes, name: entry.name },
+        allDates,
+      );
+      series[ticker] = normalizedCumulativeReturns(aligned);
+    }
+    return series;
+  }, [returnsData, customTickers, allDates]);
+
+  // ── Derived: time-range filtered data ─────────────────────────────────────
+  const filteredReturns = useMemo((): ReturnsData => {
+    if (!returnsData) return { dates: [], series: {}, synthetic: false };
+    const maxDays = RANGE_DAYS[rangePreset];
+    const startIdx = Math.max(0, allDates.length - maxDays);
+    const filteredDates = allDates.slice(startIdx);
+    const filteredSeries: Record<string, number[]> = {};
+    for (const [t, vals] of Object.entries(mergedSeries)) {
+      const sliced = vals.slice(startIdx);
+      // Re-normalize so the chart starts at 0%
+      filteredSeries[t] = normalizedCumulativeReturns(sliced);
+    }
+    return { dates: filteredDates, series: filteredSeries, synthetic: returnsData.synthetic };
+  }, [returnsData, mergedSeries, rangePreset, allDates]);
+
+  // Reset window to end whenever filtered range changes
+  useEffect(() => {
+    setWindowEndIdx(Math.max(0, filteredReturns.dates.length - 1));
+  }, [filteredReturns.dates.length]);
+
+  // ── Derived: rolling correlation for selected window ──────────────────────
+  const rollingCorrelation = useMemo((): CorrelationData => {
+    const dates = filteredReturns.dates;
+    const series = filteredReturns.series;
+    const tickers = Object.keys(series);
+    if (tickers.length === 0 || dates.length === 0) {
+      return { tickers: [], matrix: [], generated_at: '', synthetic: false };
+    }
+
+    const startIdx = Math.max(0, windowEndIdx - windowDays + 1);
+    const endIdx = windowEndIdx + 1; // exclusive
+
+    // Slice each ticker's normalized returns for the window
+    const windowedRaw: Record<string, number[]> = {};
+    for (const t of tickers) {
+      // Use raw (un-re-normalized) closes for correct return computation
+      // We derive daily returns from the normalized series directly
+      windowedRaw[t] = series[t].slice(startIdx, endIdx);
+    }
+
+    const { tickers: corrTickers, matrix } = correlationMatrix(windowedRaw);
+    const windowStart = dates[startIdx] ?? '';
+    const windowEnd = dates[windowEndIdx] ?? '';
+
+    return {
+      tickers: corrTickers,
+      matrix,
+      generated_at: `${windowStart} → ${windowEnd}`,
+      synthetic: filteredReturns.synthetic || Object.values(customTickers).some((e) => e.synthetic),
+    };
+  }, [filteredReturns, windowEndIdx, windowDays, customTickers]);
+
   const onQuantityChange = useCallback((ticker: string, qty: number) => {
     setHoldings((prev) =>
       prev.map((h) => (h.ticker === ticker ? { ...h, quantity: qty } : h))
     );
   }, []);
 
-  const enrichedHoldings: HoldingWithWeight[] = (() => {
-    if (!pricesData) return [];
+  const onRemoveTicker = useCallback((ticker: string) => {
+    setCustomTickers((prev) => {
+      const next = { ...prev };
+      delete next[ticker];
+      return next;
+    });
+    setHoldings((prev) => prev.filter((h) => h.ticker !== ticker));
+  }, []);
+
+  // ── Add ticker handler ────────────────────────────────────────────────────
+  const onAddTicker = useCallback(async (ticker: string) => {
+    const referenceDates = allDates.length > 0 ? allDates : filteredReturns.dates;
+
+    let fetched = await fetchTickerData(ticker, rangePreset);
+    let isSynthetic = false;
+
+    if (!fetched) {
+      // Fallback: generate synthetic data aligned to reference dates
+      const synthResult = syntheticTicker(ticker, referenceDates);
+      fetched = synthResult;
+      isSynthetic = true;
+    }
+
+    const aligned = alignToReferenceDates(fetched, referenceDates);
+    const latestPrice = aligned[aligned.length - 1] ?? 0;
+
+    setCustomTickers((prev) => ({
+      ...prev,
+      [ticker]: {
+        closes: aligned,
+        dates: referenceDates,
+        name: fetched!.name,
+        latestPrice,
+        synthetic: isSynthetic,
+      },
+    }));
+
+    setHoldings((prev) => {
+      if (prev.find((h) => h.ticker === ticker)) return prev;
+      return [...prev, { ticker, quantity: 0 }];
+    });
+  }, [allDates, filteredReturns.dates, rangePreset]);
+
+  // ── Enriched holdings ─────────────────────────────────────────────────────
+  const allTickers = useMemo(() => [
+    ...holdings.map((h) => h.ticker),
+  ], [holdings]);
+
+  const enrichedHoldings: HoldingWithWeight[] = useMemo(() => {
+    const priceMap: Record<string, { price: number; name: string; type: string }> = {};
+
+    if (pricesData) {
+      for (const [t, meta] of Object.entries(pricesData.tickers)) {
+        priceMap[t] = { price: meta.price, name: meta.name, type: meta.type };
+      }
+    }
+    for (const [t, entry] of Object.entries(customTickers)) {
+      priceMap[t] = { price: entry.latestPrice, name: entry.name, type: 'Stock' };
+    }
+
     const totalValue = holdings.reduce((s, h) => {
-      const meta = pricesData.tickers[h.ticker];
-      return s + (meta ? meta.price * h.quantity : 0);
+      return s + (priceMap[h.ticker]?.price ?? 0) * h.quantity;
     }, 0);
+
     return holdings.map((h) => {
-      const meta = pricesData.tickers[h.ticker] ?? { price: 0, name: h.ticker, type: 'Unknown' };
+      const meta = priceMap[h.ticker] ?? { price: 0, name: h.ticker, type: 'Unknown' };
       const value = meta.price * h.quantity;
       return {
         ...h,
@@ -78,9 +236,13 @@ export default function App() {
         weight: totalValue > 0 ? value / totalValue : 0,
       };
     });
-  })();
+  }, [holdings, pricesData, customTickers]);
 
-  const isSynthetic = correlationData?.synthetic || returnsData?.synthetic || pricesData?.synthetic;
+  // ── Render helpers ────────────────────────────────────────────────────────
+  const isSynthetic = correlationData?.synthetic || Object.values(customTickers).some((e) => e.synthetic);
+  const hasSyntheticCustom = Object.values(customTickers).some((e) => e.synthetic);
+  const maxWindowIdx = Math.max(0, filteredReturns.dates.length - 1);
+  const rangeOptions: RangePreset[] = ['3M', '6M', '1Y', '2Y'];
 
   if (error) {
     return (
@@ -101,6 +263,8 @@ export default function App() {
     );
   }
 
+  const dailyReturnsCount = filteredReturns.dates.length;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors">
       {/* Header */}
@@ -108,7 +272,7 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">PortfolioLens</span>
-            {isSynthetic && (
+            {isSynthetic && !hasSyntheticCustom && (
               <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
                 Synthetic data
               </span>
@@ -134,41 +298,97 @@ export default function App() {
 
       {/* Main */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Portfolio Correlation Analysis</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            Edit quantities to compute weights. Data: {correlationData.generated_at.slice(0, 10)}.
-          </p>
+        {/* Title + Range selector */}
+        <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Portfolio Correlation Analysis</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+              Showing {dailyReturnsCount} trading days · Data: {correlationData.generated_at.slice(0, 10)}
+            </p>
+          </div>
+          {/* Range preset buttons */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium">Range</span>
+            <div className="flex gap-1">
+              {rangeOptions.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRangePreset(r)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                    rangePreset === r
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
+        {/* Holdings */}
         <SectionCard title="Holdings">
-          <HoldingsTable holdings={enrichedHoldings} onQuantityChange={onQuantityChange} />
+          <div className="space-y-4">
+            <TickerInput onAdd={onAddTicker} existingTickers={allTickers} />
+            {hasSyntheticCustom && (
+              <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                Some tickers are using synthetic data (live fetch unavailable). Correlation structure is realistic but prices are not real.
+              </div>
+            )}
+            <HoldingsTable
+              holdings={enrichedHoldings}
+              onQuantityChange={onQuantityChange}
+              onRemove={onRemoveTicker}
+              removableTickers={Object.keys(customTickers)}
+            />
+          </div>
         </SectionCard>
 
+        {/* Summary stats */}
         <SectionCard title="Summary Statistics">
-          <SummaryStats data={correlationData} />
+          <SummaryStats data={rollingCorrelation} />
         </SectionCard>
 
+        {/* Correlation heatmap + rolling window controls */}
         <SectionCard title="Correlation Heatmap">
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Hover over a cell for details. 2-year daily returns.</p>
-          <CorrelationHeatmap data={correlationData} />
+          <div className="space-y-6">
+            <RollingCorrelationPanel
+              windowDays={windowDays}
+              onWindowChange={setWindowDays}
+              windowEndIdx={windowEndIdx}
+              onWindowEndChange={setWindowEndIdx}
+              maxIdx={maxWindowIdx}
+              filteredDates={filteredReturns.dates}
+            />
+            <CorrelationHeatmap data={rollingCorrelation} />
+          </div>
         </SectionCard>
 
-        <SectionCard title="Normalized Returns (vs. start)">
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">All series start at 0%. Shows cumulative return above/below starting price.</p>
-          <ReturnsChart data={returnsData} />
+        {/* Returns chart */}
+        <SectionCard title="Normalized Returns (vs. period start)">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+            All series start at 0% at the beginning of the selected range.
+          </p>
+          <ReturnsChart data={filteredReturns} />
         </SectionCard>
 
+        {/* Portfolio chart */}
         <SectionCard title="Portfolio Weighted Return">
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Blended portfolio return weighted by current holdings.</p>
-          <PortfolioChart returnsData={returnsData} holdings={enrichedHoldings} />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+            Blended portfolio return weighted by current holdings.
+          </p>
+          <PortfolioChart returnsData={filteredReturns} holdings={enrichedHoldings} />
         </SectionCard>
       </main>
 
       <footer className="max-w-6xl mx-auto px-4 sm:px-6 py-6 text-center text-xs text-gray-400 dark:text-gray-600 border-t border-gray-200 dark:border-gray-800 mt-4">
-        {isSynthetic
+        {correlationData.synthetic
           ? 'Using synthetic data — live market data unavailable in this environment.'
-          : 'Market data via yfinance. Not financial advice.'}
+          : 'Market data via yfinance (pre-built) and Yahoo Finance (live additions). Not financial advice.'}
       </footer>
     </div>
   );
