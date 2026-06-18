@@ -219,9 +219,13 @@ export default function App() {
     return { dates: filteredDates, series: filteredSeries, synthetic: returnsData.synthetic };
   }, [returnsData, mergedSeries, rangePreset, allDates]);
 
-  // Reset window to end whenever filtered range changes
+  // Clamp window index when the date range shrinks; on initial load (idx===0) jump to end
   useEffect(() => {
-    setWindowEndIdx(Math.max(0, filteredReturns.dates.length - 1));
+    const newMax = Math.max(0, filteredReturns.dates.length - 1);
+    setWindowEndIdx((prev) => {
+      if (prev === 0 || prev > newMax) return newMax;
+      return prev;
+    });
   }, [filteredReturns.dates.length]);
 
   // ── Derived: rolling correlation for selected window ──────────────────────
