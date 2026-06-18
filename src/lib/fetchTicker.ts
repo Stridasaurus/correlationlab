@@ -90,17 +90,30 @@ function parseStooqCsv(text: string): Array<[string, number]> | null {
 
 async function tryStooqSymbol(symbol: string, d1: string, d2: string): Promise<Array<[string, number]> | null> {
   const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&d1=${d1}&d2=${d2}&i=d`;
-  // Stooq doesn't set CORS headers, so proxy through allorigins.win
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(stooqUrl)}`;
+
+  // Try 1: corsproxy.io — returns raw CSV body directly
   try {
-    const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-    if (!resp.ok) return null;
-    const outer = await resp.json() as { contents?: string };
-    if (!outer.contents) return null;
-    return parseStooqCsv(outer.contents);
-  } catch {
-    return null;
-  }
+    const resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(stooqUrl)}`, { signal: AbortSignal.timeout(10000) });
+    if (resp.ok) {
+      const text = await resp.text();
+      const pairs = parseStooqCsv(text);
+      if (pairs) return pairs;
+    }
+  } catch { /* fall through */ }
+
+  // Try 2: allorigins.win — JSON-wrapped CSV (independent rate limit)
+  try {
+    const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(stooqUrl)}`, { signal: AbortSignal.timeout(10000) });
+    if (resp.ok) {
+      const outer = await resp.json() as { contents?: string };
+      if (outer.contents) {
+        const pairs = parseStooqCsv(outer.contents);
+        if (pairs) return pairs;
+      }
+    }
+  } catch { /* fall through */ }
+
+  return null;
 }
 
 async function fetchFromStooq(ticker: string, range: RangePreset): Promise<FetchedTicker | null> {
@@ -127,10 +140,18 @@ async function fetchFromStooq(ticker: string, range: RangePreset): Promise<Fetch
 
 // ── Yahoo Finance proxy fallback ───────────────────────────────────────────
 
+function toYahooSymbol(ticker: string): string {
+  const t = ticker.toUpperCase().replace(/-USD$/i, '').replace(/\/USD$/i, '').replace(/=F$/i, '');
+  if (FOREX_RE.test(t) && !CRYPTO_BASES.has(t)) return `${t}=X`;
+  if (COMMODITY_CODES.has(t)) return `${t}=F`;
+  return ticker;
+}
+
 async function fetchFromYahooProxy(ticker: string, range: RangePreset): Promise<FetchedTicker | null> {
   const rangeMap: Record<RangePreset, string> = { '3M': '3mo', '6M': '6mo', '1Y': '1y', '2Y': '2y' };
   const yhRange = rangeMap[range];
-  const yhUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${yhRange}&interval=1d`;
+  const yhTicker = toYahooSymbol(ticker);
+  const yhUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yhTicker)}?range=${yhRange}&interval=1d`;
   const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(yhUrl)}`;
 
   try {

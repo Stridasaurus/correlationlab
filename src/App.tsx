@@ -331,7 +331,18 @@ export default function App() {
         {/* Holdings */}
         <SectionCard title="Holdings">
           <div className="space-y-4">
-            <TickerInput onAdd={onAddTicker} existingTickers={allTickers} />
+            <div className="flex items-start gap-3">
+              <div className="flex-1">
+                <TickerInput onAdd={onAddTicker} existingTickers={allTickers} />
+              </div>
+              <button
+                onClick={() => { setHoldings(DEFAULT_HOLDINGS); setCustomTickers({}); }}
+                className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                title="Reset to default tickers"
+              >
+                Reset
+              </button>
+            </div>
             {hasSyntheticCustom && (
               <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
                 <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,7 +355,7 @@ export default function App() {
               holdings={enrichedHoldings}
               onQuantityChange={onQuantityChange}
               onRemove={onRemoveTicker}
-              removableTickers={Object.keys(customTickers)}
+              removableTickers={enrichedHoldings.map((h) => h.ticker)}
             />
           </div>
         </SectionCard>
