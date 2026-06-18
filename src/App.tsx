@@ -25,14 +25,6 @@ import TickerInput from './components/TickerInput';
 
 const BASE = import.meta.env.BASE_URL;
 
-const DEFAULT_HOLDINGS: Holding[] = [
-  { ticker: 'VXUS',  quantity: 50 },
-  { ticker: 'VOO',   quantity: 30 },
-  { ticker: 'TRBCX', quantity: 20 },
-  { ticker: 'PRFDX', quantity: 100 },
-  { ticker: 'PRNHX', quantity: 15 },
-];
-
 const RANGE_DAYS: Record<RangePreset, number> = {
   '3M': 63, '6M': 126, '1Y': 252, '2Y': 504,
   '5Y': 1260, '10Y': 2520, '20Y': 5040,
@@ -54,7 +46,7 @@ function SectionCard({ title, children, action }: { title: string; children: Rea
 
 export default function App() {
   const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const [holdings, setHoldings] = useState<Holding[]>(DEFAULT_HOLDINGS);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
   const [correlationData, setCorrelationData] = useState<CorrelationData | null>(null);
   const [returnsData, setReturnsData] = useState<ReturnsData | null>(null);
   const [pricesData, setPricesData] = useState<PricesData | null>(null);
@@ -141,19 +133,6 @@ export default function App() {
     setWindowEndIdx(Math.max(0, filteredReturns.dates.length - 1));
   }, [filteredReturns.dates.length]);
 
-  // Re-fetch custom tickers when switching into extended range (they may only have 2Y of data)
-  const prevRangeRef = useRef<RangePreset>(rangePreset);
-  useEffect(() => {
-    const wasExtended = EXTENDED_RANGES.has(prevRangeRef.current);
-    const isExtended = EXTENDED_RANGES.has(rangePreset);
-    prevRangeRef.current = rangePreset;
-    if (isExtended && !wasExtended) {
-      const tickers = Object.keys(customTickers);
-      tickers.forEach((t) => onAddTicker(t));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangePreset]);
-
   // ── Derived: rolling correlation for selected window ──────────────────────
   const rollingCorrelation = useMemo((): CorrelationData => {
     const dates = filteredReturns.dates;
@@ -233,6 +212,19 @@ export default function App() {
       return [...prev, { ticker, quantity: 0 }];
     });
   }, [allDates, filteredReturns.dates, rangePreset]);
+
+  // Re-fetch all custom tickers whenever range changes so data always covers the selected span.
+  const onAddTickerRef = useRef(onAddTicker);
+  onAddTickerRef.current = onAddTicker;
+  const prevRangeRef = useRef<RangePreset>(rangePreset);
+  useEffect(() => {
+    const prev = prevRangeRef.current;
+    prevRangeRef.current = rangePreset;
+    if (prev !== rangePreset) {
+      Object.keys(customTickers).forEach((t) => onAddTickerRef.current(t));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangePreset]);
 
   // ── Enriched holdings ─────────────────────────────────────────────────────
   const allTickers = useMemo(() => [
@@ -366,17 +358,21 @@ export default function App() {
               <div className="flex-1">
                 <TickerInput onAdd={onAddTicker} existingTickers={allTickers} />
               </div>
-              <button
-                onClick={() => { setHoldings(DEFAULT_HOLDINGS); setCustomTickers({}); }}
-                className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title="Reset to default tickers"
-              >
-                Reset
-              </button>
+              {holdings.length > 0 && (
+                <button
+                  onClick={() => { setHoldings([]); setCustomTickers({}); }}
+                  className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  title="Remove all tickers"
+                >
+                  Clear all
+                </button>
+              )}
             </div>
-            {isExtendedRange && Object.keys(customTickers).length === 0 && (
+            {holdings.length === 0 && (
               <div className="text-sm text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
-                Extended range selected — add tickers above to see long-term history. Default portfolio data is limited to 2 years.
+                {isExtendedRange
+                  ? 'Add tickers above to compare long-term history — try SPY, GLD, TLT, BTC-USD.'
+                  : 'Add tickers above to get started — try SPY, QQQ, GLD, BTC-USD, or EURUSD.'}
               </div>
             )}
             {hasSyntheticCustom && (
