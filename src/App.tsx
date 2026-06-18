@@ -90,7 +90,11 @@ export default function App() {
 
   const mergedSeries = useMemo(() => {
     if (!returnsData) return {};
-    const series: Record<string, number[]> = { ...returnsData.series };
+    const activeTickers = new Set(holdings.map((h) => h.ticker));
+    const series: Record<string, number[]> = {};
+    for (const [t, vals] of Object.entries(returnsData.series)) {
+      if (activeTickers.has(t)) series[t] = vals;
+    }
     for (const [ticker, entry] of Object.entries(customTickers)) {
       // Align custom ticker closes to the full date array, then normalize
       const aligned = alignToReferenceDates(
