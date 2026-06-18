@@ -46,5 +46,5 @@ export interface CustomTickerEntry {
   assetType: AssetType;
 }
 
-export type RangePreset = '3M' | '6M' | '1Y' | '2Y';
+export type RangePreset = '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y';
 export type WindowDays = 30 | 60 | 90 | 180;

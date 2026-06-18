@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type {
   CorrelationData,
   ReturnsData,
@@ -34,11 +34,11 @@ const DEFAULT_HOLDINGS: Holding[] = [
 ];
 
 const RANGE_DAYS: Record<RangePreset, number> = {
-  '3M': 63,
-  '6M': 126,
-  '1Y': 252,
-  '2Y': 504,
+  '3M': 63, '6M': 126, '1Y': 252, '2Y': 504,
+  '5Y': 1260, '10Y': 2520, '20Y': 5040,
 };
+
+const EXTENDED_RANGES = new Set<RangePreset>(['5Y', '10Y', '20Y']);
 
 function SectionCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -85,18 +85,33 @@ export default function App() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  // ── Derived: merged series (static + custom tickers) ──────────────────────
-  const allDates = returnsData?.dates ?? [];
+  // ── Derived: date axis ────────────────────────────────────────────────────
+  // In extended ranges, drive the axis from the longest custom ticker fetch.
+  // In standard ranges, use the pre-built static JSON dates.
+  const allDates = useMemo(() => {
+    if (EXTENDED_RANGES.has(rangePreset)) {
+      let longest: string[] = [];
+      for (const entry of Object.values(customTickers)) {
+        if (entry.dates.length > longest.length) longest = entry.dates;
+      }
+      return longest;
+    }
+    return returnsData?.dates ?? [];
+  }, [rangePreset, returnsData, customTickers]);
 
+  // ── Derived: merged series (static + custom tickers) ──────────────────────
   const mergedSeries = useMemo(() => {
     if (!returnsData) return {};
     const activeTickers = new Set(holdings.map((h) => h.ticker));
     const series: Record<string, number[]> = {};
-    for (const [t, vals] of Object.entries(returnsData.series)) {
-      if (activeTickers.has(t)) series[t] = vals;
+    // Static default-ticker data only covers ~2Y — exclude in extended ranges
+    if (!EXTENDED_RANGES.has(rangePreset)) {
+      for (const [t, vals] of Object.entries(returnsData.series)) {
+        if (activeTickers.has(t)) series[t] = vals;
+      }
     }
     for (const [ticker, entry] of Object.entries(customTickers)) {
-      // Align custom ticker closes to the full date array, then normalize
+      if (allDates.length === 0) continue;
       const aligned = alignToReferenceDates(
         { dates: entry.dates, closes: entry.closes, name: entry.name, assetType: entry.assetType },
         allDates,
@@ -104,7 +119,7 @@ export default function App() {
       series[ticker] = normalizedCumulativeReturns(aligned);
     }
     return series;
-  }, [returnsData, customTickers, allDates]);
+  }, [returnsData, customTickers, allDates, holdings, rangePreset]);
 
   // ── Derived: time-range filtered data ─────────────────────────────────────
   const filteredReturns = useMemo((): ReturnsData => {
@@ -125,6 +140,19 @@ export default function App() {
   useEffect(() => {
     setWindowEndIdx(Math.max(0, filteredReturns.dates.length - 1));
   }, [filteredReturns.dates.length]);
+
+  // Re-fetch custom tickers when switching into extended range (they may only have 2Y of data)
+  const prevRangeRef = useRef<RangePreset>(rangePreset);
+  useEffect(() => {
+    const wasExtended = EXTENDED_RANGES.has(prevRangeRef.current);
+    const isExtended = EXTENDED_RANGES.has(rangePreset);
+    prevRangeRef.current = rangePreset;
+    if (isExtended && !wasExtended) {
+      const tickers = Object.keys(customTickers);
+      tickers.forEach((t) => onAddTicker(t));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangePreset]);
 
   // ── Derived: rolling correlation for selected window ──────────────────────
   const rollingCorrelation = useMemo((): CorrelationData => {
@@ -175,26 +203,24 @@ export default function App() {
 
   // ── Add ticker handler ────────────────────────────────────────────────────
   const onAddTicker = useCallback(async (ticker: string) => {
-    const referenceDates = allDates.length > 0 ? allDates : filteredReturns.dates;
-
     let fetched = await fetchTickerData(ticker, rangePreset);
     let isSynthetic = false;
 
     if (!fetched) {
-      // Fallback: generate synthetic data aligned to reference dates
-      const synthResult = syntheticTicker(ticker, referenceDates);
-      fetched = synthResult;
+      // Synthetic fallback: use allDates or a generated date list
+      const refDates = allDates.length > 0 ? allDates : filteredReturns.dates;
+      fetched = syntheticTicker(ticker, refDates);
       isSynthetic = true;
     }
 
-    const aligned = alignToReferenceDates(fetched, referenceDates);
-    const latestPrice = aligned[aligned.length - 1] ?? 0;
+    // Store raw dates+closes so mergedSeries can re-align when the date axis changes
+    const latestPrice = fetched.closes[fetched.closes.length - 1] ?? 0;
 
     setCustomTickers((prev) => ({
       ...prev,
       [ticker]: {
-        closes: aligned,
-        dates: referenceDates,
+        closes: fetched!.closes,
+        dates: fetched!.dates,
         name: fetched!.name,
         latestPrice,
         synthetic: isSynthetic,
@@ -247,7 +273,8 @@ export default function App() {
   const isSynthetic = correlationData?.synthetic || Object.values(customTickers).some((e) => e.synthetic);
   const hasSyntheticCustom = Object.values(customTickers).some((e) => e.synthetic);
   const maxWindowIdx = Math.max(0, filteredReturns.dates.length - 1);
-  const rangeOptions: RangePreset[] = ['3M', '6M', '1Y', '2Y'];
+  const rangeOptions: RangePreset[] = ['3M', '6M', '1Y', '2Y', '5Y', '10Y', '20Y'];
+  const isExtendedRange = EXTENDED_RANGES.has(rangePreset);
 
   if (error) {
     return (
@@ -347,6 +374,11 @@ export default function App() {
                 Reset
               </button>
             </div>
+            {isExtendedRange && Object.keys(customTickers).length === 0 && (
+              <div className="text-sm text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                Extended range selected — add tickers above to see long-term history. Default portfolio data is limited to 2 years.
+              </div>
+            )}
             {hasSyntheticCustom && (
               <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
                 <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

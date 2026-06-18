@@ -13,6 +13,9 @@ const RANGE_CALENDAR_DAYS: Record<RangePreset, number> = {
   '6M': 200,
   '1Y': 380,
   '2Y': 760,
+  '5Y': 1900,
+  '10Y': 3800,
+  '20Y': 7600,
 };
 
 // ── Asset class detection ──────────────────────────────────────────────────
@@ -71,6 +74,8 @@ export function inferAssetType(rawTicker: string): AssetType {
   if (CRYPTO_BASES.has(t)) return 'Crypto';
   if (COMMODITY_CODES.has(t)) return 'Commodity';
   if (FOREX_RE.test(t)) return 'Forex';
+  // US mutual funds are typically 5-char tickers ending in X (TRBCX, VTSAX, FXAIX…)
+  if (/^[A-Z]{4,5}X$/.test(t)) return 'Mutual Fund';
   return 'Stock';
 }
 
@@ -176,13 +181,14 @@ function yahooQuoteTypeToAssetType(qt: string | undefined): AssetType {
     case 'FUTURE':         return 'Commodity';
     case 'FOREX':          return 'Forex';
     case 'INDEX':          return 'Index';
+    case 'EQUITY':         return 'Stock';
     default:               return 'Stock';
   }
 }
 
 type YahooChartResult = {
   timestamp: number[];
-  meta: { longName?: string; shortName?: string; quoteType?: string };
+  meta: { longName?: string; shortName?: string; quoteType?: string; instrumentType?: string };
   indicators: { quote: Array<{ close: number[] }> };
 };
 
@@ -205,12 +211,12 @@ async function parseYahooResult(ticker: string, result: YahooChartResult): Promi
     dates: pairs.map(([d]) => d),
     closes: pairs.map(([, c]) => c),
     name,
-    assetType: yahooQuoteTypeToAssetType(result.meta.quoteType),
+    assetType: yahooQuoteTypeToAssetType(result.meta.instrumentType ?? result.meta.quoteType),
   };
 }
 
 async function fetchFromYahooProxy(ticker: string, range: RangePreset): Promise<FetchedTicker | null> {
-  const rangeMap: Record<RangePreset, string> = { '3M': '3mo', '6M': '6mo', '1Y': '1y', '2Y': '2y' };
+  const rangeMap: Record<RangePreset, string> = { '3M': '3mo', '6M': '6mo', '1Y': '1y', '2Y': '2y', '5Y': '5y', '10Y': '10y', '20Y': '20y' };
   const yhRange = rangeMap[range];
   const yhTicker = toYahooSymbol(ticker);
   const yhUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yhTicker)}?range=${yhRange}&interval=1d`;
