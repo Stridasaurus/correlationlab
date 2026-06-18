@@ -4,6 +4,8 @@ on:
   push:
     branches: [claude/eloquent-hawking-d0zqrg, main]
   workflow_dispatch:
+  schedule:
+    - cron: '0 13 * * 1-5'  # Mon-Fri at 13:00 UTC (9:00 AM EDT / 8:00 AM EST)
 
 permissions:
   contents: write
