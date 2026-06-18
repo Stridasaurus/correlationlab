@@ -17,6 +17,15 @@ const RANGE_CALENDAR_DAYS: Record<RangePreset, number> = {
 
 // ── Asset class detection ──────────────────────────────────────────────────
 
+const KNOWN_ETFS = new Set([
+  'SPY','VOO','VTI','IVV','QQQ','VEA','VWO','VXUS','EFA','EEM',
+  'BND','AGG','TLT','LQD','HYG','IEF','SHY','MBB',
+  'GLD','SLV','USO','UNG','DBA','DJP','GSG','PDBC',
+  'VNQ','IYR','XLRE','XLF','XLE','XLK','XLV','XLI','XLP','XLU','XLB','XLY',
+  'IWM','MDY','IJH','IJR','ARKK','ARKW','ARKG',
+  'GDX','GDXJ','XOP','OIH','KRE','XBI','IBB',
+]);
+
 const CRYPTO_BASES = new Set([
   'BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','DOT','MATIC','LTC',
   'BCH','LINK','UNI','ATOM','XLM','BNB','TON','SHIB','TRX','NEAR',
@@ -113,6 +122,16 @@ async function tryStooqSymbol(symbol: string, d1: string, d2: string): Promise<A
     }
   } catch { /* fall through */ }
 
+  // Try 3: codetabs.com — raw CSV, independent rate limit
+  try {
+    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(stooqUrl)}`, { signal: AbortSignal.timeout(10000) });
+    if (resp.ok) {
+      const text = await resp.text();
+      const pairs = parseStooqCsv(text);
+      if (pairs) return pairs;
+    }
+  } catch { /* fall through */ }
+
   return null;
 }
 
@@ -127,11 +146,12 @@ async function fetchFromStooq(ticker: string, range: RangePreset): Promise<Fetch
   for (const symbol of candidates) {
     const pairs = await tryStooqSymbol(symbol, d1, d2);
     if (pairs) {
+      const t = ticker.toUpperCase().replace(/-USD$/i, '').replace(/\/USD$/i, '').replace(/=F$/i, '');
       return {
         dates: pairs.map(([d]) => d),
         closes: pairs.map(([, c]) => c),
         name: ticker,
-        assetType: inferAssetType(ticker),
+        assetType: KNOWN_ETFS.has(t) ? 'ETF' : inferAssetType(ticker),
       };
     }
   }
@@ -142,9 +162,51 @@ async function fetchFromStooq(ticker: string, range: RangePreset): Promise<Fetch
 
 function toYahooSymbol(ticker: string): string {
   const t = ticker.toUpperCase().replace(/-USD$/i, '').replace(/\/USD$/i, '').replace(/=F$/i, '');
-  if (FOREX_RE.test(t) && !CRYPTO_BASES.has(t)) return `${t}=X`;
+  if (CRYPTO_BASES.has(t)) return `${t}-USD`;
+  if (FOREX_RE.test(t)) return `${t}=X`;
   if (COMMODITY_CODES.has(t)) return `${t}=F`;
   return ticker;
+}
+
+function yahooQuoteTypeToAssetType(qt: string | undefined): AssetType {
+  switch (qt) {
+    case 'ETF':            return 'ETF';
+    case 'MUTUALFUND':     return 'Mutual Fund';
+    case 'CRYPTOCURRENCY': return 'Crypto';
+    case 'FUTURE':         return 'Commodity';
+    case 'FOREX':          return 'Forex';
+    case 'INDEX':          return 'Index';
+    default:               return 'Stock';
+  }
+}
+
+type YahooChartResult = {
+  timestamp: number[];
+  meta: { longName?: string; shortName?: string; quoteType?: string };
+  indicators: { quote: Array<{ close: number[] }> };
+};
+
+async function parseYahooResult(ticker: string, result: YahooChartResult): Promise<FetchedTicker | null> {
+  const timestamps = result.timestamp;
+  const closes = result.indicators.quote[0]?.close;
+  if (!timestamps || !closes || timestamps.length === 0) return null;
+
+  const name = result.meta.longName || result.meta.shortName || ticker;
+  const pairs: Array<[string, number]> = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const c = closes[i];
+    if (c != null && isFinite(c) && c > 0) {
+      pairs.push([new Date(timestamps[i] * 1000).toISOString().slice(0, 10), c]);
+    }
+  }
+  if (pairs.length < 10) return null;
+
+  return {
+    dates: pairs.map(([d]) => d),
+    closes: pairs.map(([, c]) => c),
+    name,
+    assetType: yahooQuoteTypeToAssetType(result.meta.quoteType),
+  };
 }
 
 async function fetchFromYahooProxy(ticker: string, range: RangePreset): Promise<FetchedTicker | null> {
@@ -152,48 +214,37 @@ async function fetchFromYahooProxy(ticker: string, range: RangePreset): Promise<
   const yhRange = rangeMap[range];
   const yhTicker = toYahooSymbol(ticker);
   const yhUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yhTicker)}?range=${yhRange}&interval=1d`;
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(yhUrl)}`;
 
+  // Try 1: corsproxy.io — returns raw Yahoo JSON directly
   try {
-    const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-    if (!resp.ok) return null;
-    const outer = await resp.json() as { contents?: string };
-    if (!outer.contents) return null;
-    const data = JSON.parse(outer.contents) as {
-      chart: {
-        result?: Array<{
-          timestamp: number[];
-          meta: { longName?: string; shortName?: string };
-          indicators: { quote: Array<{ close: number[] }> };
-        }>;
-      };
-    };
-    const result = data?.chart?.result?.[0];
-    if (!result) return null;
-
-    const timestamps = result.timestamp;
-    const closes = result.indicators.quote[0]?.close;
-    if (!timestamps || !closes || timestamps.length === 0) return null;
-
-    const name = result.meta.longName || result.meta.shortName || ticker;
-    const pairs: Array<[string, number]> = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      const c = closes[i];
-      if (c != null && isFinite(c) && c > 0) {
-        pairs.push([new Date(timestamps[i] * 1000).toISOString().slice(0, 10), c]);
+    const resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(yhUrl)}`, { signal: AbortSignal.timeout(10000) });
+    if (resp.ok) {
+      const data = await resp.json() as { chart: { result?: YahooChartResult[] } };
+      const result = data?.chart?.result?.[0];
+      if (result) {
+        const ft = await parseYahooResult(ticker, result);
+        if (ft) return ft;
       }
     }
-    if (pairs.length < 10) return null;
+  } catch { /* fall through */ }
 
-    return {
-      dates: pairs.map(([d]) => d),
-      closes: pairs.map(([, c]) => c),
-      name,
-      assetType: inferAssetType(ticker),
-    };
-  } catch {
-    return null;
-  }
+  // Try 2: allorigins.win — JSON-wrapped Yahoo JSON
+  try {
+    const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(yhUrl)}`, { signal: AbortSignal.timeout(10000) });
+    if (resp.ok) {
+      const outer = await resp.json() as { contents?: string };
+      if (outer.contents) {
+        const data = JSON.parse(outer.contents) as { chart: { result?: YahooChartResult[] } };
+        const result = data?.chart?.result?.[0];
+        if (result) {
+          const ft = await parseYahooResult(ticker, result);
+          if (ft) return ft;
+        }
+      }
+    }
+  } catch { /* fall through */ }
+
+  return null;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -202,10 +253,13 @@ export async function fetchTickerData(
   ticker: string,
   range: RangePreset,
 ): Promise<FetchedTicker | null> {
-  try {
-    const stooq = await fetchFromStooq(ticker, range);
-    if (stooq) return stooq;
-  } catch { /* fall through */ }
+  // Stooq maps crypto symbols to equity ETFs (e.g. BTC → NYSE:BTC) — skip it for crypto
+  if (inferAssetType(ticker) !== 'Crypto') {
+    try {
+      const stooq = await fetchFromStooq(ticker, range);
+      if (stooq) return stooq;
+    } catch { /* fall through */ }
+  }
 
   try {
     const yahoo = await fetchFromYahooProxy(ticker, range);
