@@ -1,5 +1,17 @@
 import type { HoldingWithWeight } from '../lib/types';
 
+function badgeClass(type: string): string {
+  switch (type) {
+    case 'ETF':         return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300';
+    case 'Mutual Fund': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300';
+    case 'Crypto':      return 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300';
+    case 'Commodity':   return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300';
+    case 'Forex':       return 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300';
+    case 'Index':       return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
+    default:            return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300';
+  }
+}
+
 interface Props {
   holdings: HoldingWithWeight[];
   onQuantityChange: (ticker: string, qty: number) => void;
@@ -50,11 +62,7 @@ export default function HoldingsTable({ holdings, onQuantityChange, onRemove, re
                 {h.name}
               </td>
               <td className="px-4 py-3 hidden sm:table-cell">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  h.type === 'ETF'
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                    : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
-                }`}>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass(h.type)}`}>
                   {h.type}
                 </span>
               </td>

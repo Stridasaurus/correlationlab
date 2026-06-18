@@ -19,12 +19,17 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+# Supported type values: ETF | Mutual Fund | Stock | Crypto | Commodity | Forex | Index
 TICKER_META: dict[str, dict[str, str]] = {
     "VXUS":  {"name": "Vanguard Total International Stock ETF", "type": "ETF"},
     "VOO":   {"name": "Vanguard S&P 500 ETF", "type": "ETF"},
     "TRBCX": {"name": "T. Rowe Price Blue Chip Growth Fund", "type": "Mutual Fund"},
     "PRFDX": {"name": "T. Rowe Price Equity Income Fund", "type": "Mutual Fund"},
     "PRNHX": {"name": "T. Rowe Price New Horizons Fund", "type": "Mutual Fund"},
+    # Examples of extended asset types (add more as needed):
+    # "BTC":   {"name": "Bitcoin", "type": "Crypto"},
+    # "GC":    {"name": "Gold Futures", "type": "Commodity"},
+    # "EURUSD":{"name": "EUR/USD", "type": "Forex"},
 }
 
 

@@ -94,7 +94,7 @@ export default function App() {
     for (const [ticker, entry] of Object.entries(customTickers)) {
       // Align custom ticker closes to the full date array, then normalize
       const aligned = alignToReferenceDates(
-        { dates: entry.dates, closes: entry.closes, name: entry.name },
+        { dates: entry.dates, closes: entry.closes, name: entry.name, assetType: entry.assetType },
         allDates,
       );
       series[ticker] = normalizedCumulativeReturns(aligned);
@@ -194,6 +194,7 @@ export default function App() {
         name: fetched!.name,
         latestPrice,
         synthetic: isSynthetic,
+        assetType: fetched!.assetType,
       },
     }));
 
@@ -217,7 +218,7 @@ export default function App() {
       }
     }
     for (const [t, entry] of Object.entries(customTickers)) {
-      priceMap[t] = { price: entry.latestPrice, name: entry.name, type: 'Stock' };
+      priceMap[t] = { price: entry.latestPrice, name: entry.name, type: entry.assetType };
     }
 
     const totalValue = holdings.reduce((s, h) => {
@@ -271,7 +272,7 @@ export default function App() {
       <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">PortfolioLens</span>
+            <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">CorrelationLab</span>
             {isSynthetic && !hasSyntheticCustom && (
               <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
                 Synthetic data

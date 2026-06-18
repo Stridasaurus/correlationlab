@@ -1,7 +1,9 @@
+export type AssetType = 'ETF' | 'Mutual Fund' | 'Stock' | 'Crypto' | 'Commodity' | 'Forex' | 'Index';
+
 export interface TickerMeta {
   price: number;
   name: string;
-  type: 'ETF' | 'Mutual Fund' | 'Stock';
+  type: AssetType;
 }
 
 export interface PricesData {
@@ -41,6 +43,7 @@ export interface CustomTickerEntry {
   name: string;
   latestPrice: number;
   synthetic: boolean;
+  assetType: AssetType;
 }
 
 export type RangePreset = '3M' | '6M' | '1Y' | '2Y';
