@@ -32,6 +32,52 @@ const RANGE_DAYS: Record<RangePreset, number> = {
 
 const EXTENDED_RANGES = new Set<RangePreset>(['5Y', '10Y', '20Y']);
 
+interface Preset {
+  name: string;
+  description: string;
+  tickers: string[];
+  range?: RangePreset;
+}
+
+const PRESETS: Preset[] = [
+  {
+    name: 'Diversified Core',
+    description: 'US equities, bonds, gold, and emerging markets',
+    tickers: ['SPY', 'BND', 'GLD', 'VWO'],
+    range: '2Y',
+  },
+  {
+    name: 'All-Weather',
+    description: 'Dalio-style balance across economic environments',
+    tickers: ['SPY', 'TLT', 'IEF', 'GLD', 'DJP'],
+    range: '5Y',
+  },
+  {
+    name: 'Crypto & Equities',
+    description: 'How crypto correlates with traditional markets',
+    tickers: ['BTC-USD', 'ETH-USD', 'SPY', 'QQQ', 'GLD'],
+    range: '2Y',
+  },
+  {
+    name: 'US Sectors',
+    description: 'Rotation across financials, energy, tech, health, utilities',
+    tickers: ['XLF', 'XLE', 'XLK', 'XLV', 'XLU'],
+    range: '5Y',
+  },
+  {
+    name: '2008 Crisis',
+    description: 'Assets during the financial crisis — set range to 20Y',
+    tickers: ['SPY', 'GLD', 'TLT', 'VNQ', 'XLF'],
+    range: '20Y',
+  },
+  {
+    name: 'Dot-com Bubble',
+    description: 'Tech vs safe havens through the 2000–2003 crash',
+    tickers: ['QQQ', 'SPY', 'GLD', 'TLT'],
+    range: '20Y',
+  },
+];
+
 function SectionCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
@@ -213,6 +259,14 @@ export default function App() {
     });
   }, [allDates, filteredReturns.dates, rangePreset]);
 
+  const onLoadPreset = useCallback(async (preset: Preset) => {
+    setHoldings([]);
+    setCustomTickers({});
+    if (preset.range) setRangePreset(preset.range);
+    // Fetch all preset tickers in parallel
+    await Promise.all(preset.tickers.map((t) => onAddTicker(t)));
+  }, [onAddTicker]);
+
   // Re-fetch all custom tickers whenever range changes so data always covers the selected span.
   const onAddTickerRef = useRef(onAddTicker);
   onAddTickerRef.current = onAddTicker;
@@ -368,11 +422,25 @@ export default function App() {
                 </button>
               )}
             </div>
+            {/* Preset selector */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wide shrink-0">Presets</span>
+              {PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  onClick={() => onLoadPreset(preset)}
+                  title={preset.description}
+                  className="px-2.5 py-1 text-xs rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
             {holdings.length === 0 && (
               <div className="text-sm text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
                 {isExtendedRange
-                  ? 'Add tickers above to compare long-term history — try SPY, GLD, TLT, BTC-USD.'
-                  : 'Add tickers above to get started — try SPY, QQQ, GLD, BTC-USD, or EURUSD.'}
+                  ? 'Add tickers above or pick a preset to compare long-term history.'
+                  : 'Pick a preset above or type a ticker to get started.'}
               </div>
             )}
             {hasSyntheticCustom && (
