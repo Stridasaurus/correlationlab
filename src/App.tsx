@@ -109,17 +109,43 @@ const PRESETS: Preset[] = [
     range: '20Y',
   },
   {
-    // $50k in 2000 ≈ $90k in 2026 (~2.7% annual inflation)
-    name: 'Dot-com Bubble',
-    description: 'Tech euphoria vs safe havens through the 2000–2003 collapse',
-    totalValue: 90_000,
+    name: 'Tech Concentration',
+    description: 'How correlated big tech became — includes ARKK\'s blowup and the 2022 rate-hike selloff',
+    totalValue: 50_000,
     holdings: [
-      { ticker: 'QQQ', allocation: 0.40 },
-      { ticker: 'SPY', allocation: 0.40 },
-      { ticker: 'GLD', allocation: 0.10 },
-      { ticker: 'TLT', allocation: 0.10 },
+      { ticker: 'QQQ', allocation: 0.30 },
+      { ticker: 'XLK', allocation: 0.25 },
+      { ticker: 'ARKK', allocation: 0.20 },
+      { ticker: 'SPY', allocation: 0.15 },
+      { ticker: 'VGT', allocation: 0.10 },
     ],
-    range: '20Y',
+    range: '5Y',
+  },
+  {
+    name: 'Inflation Trade',
+    description: 'Which "inflation hedges" actually hedged during the 2021–2023 cycle',
+    totalValue: 50_000,
+    holdings: [
+      { ticker: 'GLD', allocation: 0.25 },
+      { ticker: 'TIP', allocation: 0.25 },
+      { ticker: 'XLE', allocation: 0.25 },
+      { ticker: 'VNQ', allocation: 0.15 },
+      { ticker: 'SPY', allocation: 0.10 },
+    ],
+    range: '5Y',
+  },
+  {
+    name: 'Factor Rotation',
+    description: 'Value vs growth vs small cap vs international — how factor correlations shift across cycles',
+    totalValue: 50_000,
+    holdings: [
+      { ticker: 'SPY', allocation: 0.30 },
+      { ticker: 'VTV', allocation: 0.20 },
+      { ticker: 'VUG', allocation: 0.20 },
+      { ticker: 'IWM', allocation: 0.15 },
+      { ticker: 'VEA', allocation: 0.15 },
+    ],
+    range: '10Y',
   },
 ];
 
