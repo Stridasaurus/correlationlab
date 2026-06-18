@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/correlationlab/',
+  base: '/',
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/tests/setup.ts'],
