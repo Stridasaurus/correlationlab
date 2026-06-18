@@ -71,28 +71,33 @@ function toYYYYMMDD(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
+function parseStooqCsv(text: string): Array<[string, number]> | null {
+  const lines = text.trim().split('\n');
+  if (lines.length < 3 || !lines[0].toLowerCase().includes('date')) return null;
+  const pairs: Array<[string, number]> = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    if (cols.length < 5) continue;
+    const date = cols[0].trim();
+    const close = parseFloat(cols[4].trim());
+    if (!date.match(/^\d{4}-\d{2}-\d{2}$/) || !isFinite(close) || close <= 0) continue;
+    pairs.push([date, close]);
+  }
+  if (pairs.length < 10) return null;
+  pairs.sort(([a], [b]) => a.localeCompare(b));
+  return pairs;
+}
+
 async function tryStooqSymbol(symbol: string, d1: string, d2: string): Promise<Array<[string, number]> | null> {
-  const url = `https://stooq.com/q/d/l/?s=${symbol}&d1=${d1}&d2=${d2}&i=d`;
+  const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&d1=${d1}&d2=${d2}&i=d`;
+  // Stooq doesn't set CORS headers, so proxy through allorigins.win
+  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(stooqUrl)}`;
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
     if (!resp.ok) return null;
-    const text = await resp.text();
-    const lines = text.trim().split('\n');
-    if (lines.length < 3 || !lines[0].toLowerCase().includes('date')) return null;
-
-    const pairs: Array<[string, number]> = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',');
-      if (cols.length < 5) continue;
-      const date = cols[0].trim();
-      const close = parseFloat(cols[4].trim());
-      if (!date.match(/^\d{4}-\d{2}-\d{2}$/) || !isFinite(close) || close <= 0) continue;
-      pairs.push([date, close]);
-    }
-    if (pairs.length < 10) return null;
-
-    pairs.sort(([a], [b]) => a.localeCompare(b));
-    return pairs;
+    const outer = await resp.json() as { contents?: string };
+    if (!outer.contents) return null;
+    return parseStooqCsv(outer.contents);
   } catch {
     return null;
   }
