@@ -35,45 +35,90 @@ const EXTENDED_RANGES = new Set<RangePreset>(['5Y', '10Y', '20Y']);
 interface Preset {
   name: string;
   description: string;
-  tickers: string[];
+  // allocation 0–1, must sum to 1
+  holdings: { ticker: string; allocation: number }[];
+  // target portfolio value in today's dollars (historical presets inflation-adjusted)
+  totalValue: number;
   range?: RangePreset;
 }
 
 const PRESETS: Preset[] = [
   {
     name: 'Diversified Core',
-    description: 'US equities, bonds, gold, and emerging markets',
-    tickers: ['SPY', 'BND', 'GLD', 'VWO'],
+    description: 'Classic broad-market allocation: US equities, bonds, gold, emerging markets',
+    totalValue: 50_000,
+    holdings: [
+      { ticker: 'SPY',  allocation: 0.60 },
+      { ticker: 'BND',  allocation: 0.30 },
+      { ticker: 'GLD',  allocation: 0.07 },
+      { ticker: 'VWO',  allocation: 0.03 },
+    ],
     range: '2Y',
   },
   {
     name: 'All-Weather',
-    description: 'Dalio-style balance across economic environments',
-    tickers: ['SPY', 'TLT', 'IEF', 'GLD', 'DJP'],
+    description: "Dalio's risk-parity balance across economic environments",
+    totalValue: 50_000,
+    holdings: [
+      { ticker: 'SPY',  allocation: 0.30 },
+      { ticker: 'TLT',  allocation: 0.40 },
+      { ticker: 'IEF',  allocation: 0.15 },
+      { ticker: 'GLD',  allocation: 0.075 },
+      { ticker: 'DJP',  allocation: 0.075 },
+    ],
     range: '5Y',
   },
   {
     name: 'Crypto & Equities',
-    description: 'How crypto correlates with traditional markets',
-    tickers: ['BTC-USD', 'ETH-USD', 'SPY', 'QQQ', 'GLD'],
+    description: 'Growth-oriented mix of equities, crypto, and gold hedge',
+    totalValue: 25_000,
+    holdings: [
+      { ticker: 'SPY',     allocation: 0.40 },
+      { ticker: 'QQQ',     allocation: 0.25 },
+      { ticker: 'BTC-USD', allocation: 0.20 },
+      { ticker: 'ETH-USD', allocation: 0.10 },
+      { ticker: 'GLD',     allocation: 0.05 },
+    ],
     range: '2Y',
   },
   {
     name: 'US Sectors',
-    description: 'Rotation across financials, energy, tech, health, utilities',
-    tickers: ['XLF', 'XLE', 'XLK', 'XLV', 'XLU'],
+    description: 'Equal-weight sector rotation: financials, energy, tech, health, utilities',
+    totalValue: 50_000,
+    holdings: [
+      { ticker: 'XLF', allocation: 0.20 },
+      { ticker: 'XLE', allocation: 0.20 },
+      { ticker: 'XLK', allocation: 0.20 },
+      { ticker: 'XLV', allocation: 0.20 },
+      { ticker: 'XLU', allocation: 0.20 },
+    ],
     range: '5Y',
   },
   {
+    // $50k in 2008 ≈ $75k in 2026 (~2.2% annual inflation)
     name: '2008 Crisis',
-    description: 'Assets during the financial crisis — set range to 20Y',
-    tickers: ['SPY', 'GLD', 'TLT', 'VNQ', 'XLF'],
+    description: 'See how equities, bonds, gold, real estate & financials diverged in 2008',
+    totalValue: 75_000,
+    holdings: [
+      { ticker: 'SPY', allocation: 0.50 },
+      { ticker: 'GLD', allocation: 0.20 },
+      { ticker: 'TLT', allocation: 0.20 },
+      { ticker: 'VNQ', allocation: 0.05 },
+      { ticker: 'XLF', allocation: 0.05 },
+    ],
     range: '20Y',
   },
   {
+    // $50k in 2000 ≈ $90k in 2026 (~2.7% annual inflation)
     name: 'Dot-com Bubble',
-    description: 'Tech vs safe havens through the 2000–2003 crash',
-    tickers: ['QQQ', 'SPY', 'GLD', 'TLT'],
+    description: 'Tech euphoria vs safe havens through the 2000–2003 collapse',
+    totalValue: 90_000,
+    holdings: [
+      { ticker: 'QQQ', allocation: 0.40 },
+      { ticker: 'SPY', allocation: 0.40 },
+      { ticker: 'GLD', allocation: 0.10 },
+      { ticker: 'TLT', allocation: 0.10 },
+    ],
     range: '20Y',
   },
 ];
@@ -260,12 +305,44 @@ export default function App() {
   }, [allDates, filteredReturns.dates, rangePreset]);
 
   const onLoadPreset = useCallback(async (preset: Preset) => {
+    const targetRange = preset.range ?? rangePreset;
     setHoldings([]);
     setCustomTickers({});
     if (preset.range) setRangePreset(preset.range);
-    // Fetch all preset tickers in parallel
-    await Promise.all(preset.tickers.map((t) => onAddTicker(t)));
-  }, [onAddTicker]);
+
+    const refDates = allDates.length > 0 ? allDates : filteredReturns.dates;
+    const results = await Promise.all(
+      preset.holdings.map(async ({ ticker, allocation }) => {
+        let fetched = await fetchTickerData(ticker, targetRange);
+        let isSynthetic = false;
+        if (!fetched) {
+          fetched = syntheticTicker(ticker, refDates);
+          isSynthetic = true;
+        }
+        const latestPrice = fetched.closes[fetched.closes.length - 1] ?? 1;
+        const quantity = latestPrice > 0
+          ? Math.round((preset.totalValue * allocation) / latestPrice * 100) / 100
+          : 0;
+        return { ticker, fetched, isSynthetic, latestPrice, allocation, quantity };
+      })
+    );
+
+    const newCustomTickers: typeof customTickers = {};
+    const newHoldings: { ticker: string; quantity: number }[] = [];
+    for (const { ticker, fetched, isSynthetic, latestPrice, quantity } of results) {
+      newCustomTickers[ticker] = {
+        closes: fetched.closes,
+        dates: fetched.dates,
+        name: fetched.name,
+        latestPrice,
+        synthetic: isSynthetic,
+        assetType: fetched.assetType,
+      };
+      newHoldings.push({ ticker, quantity });
+    }
+    setCustomTickers(newCustomTickers);
+    setHoldings(newHoldings);
+  }, [rangePreset, allDates, filteredReturns.dates, customTickers]);
 
   // Re-fetch all custom tickers whenever range changes so data always covers the selected span.
   const onAddTickerRef = useRef(onAddTicker);
