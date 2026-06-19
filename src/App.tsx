@@ -15,6 +15,7 @@ import {
   syntheticTicker,
   alignToReferenceDates,
 } from './lib/fetchTicker';
+import { encodeURLState, decodeURLState } from './lib/urlState';
 import HoldingsTable from './components/HoldingsTable';
 import CorrelationHeatmap from './components/CorrelationHeatmap';
 import ReturnsChart from './components/ReturnsChart';
@@ -374,6 +375,77 @@ export default function App() {
     setHoldings(newHoldings);
   }, [rangePreset, allDates, filteredReturns.dates, customTickers]);
 
+  // ── URL state persistence ─────────────────────────────────────────────────
+  // Capture the hash synchronously before any effects fire.
+  const initialHashRef = useRef(window.location.hash);
+  // Gate write-back until restoration is complete (avoids clobbering the hash
+  // with empty state on the first render before the restore promise resolves).
+  const restoredRef = useRef(false);
+  // Prevent the restore from firing more than once when returnsData reloads.
+  const restoreAttemptedRef = useRef(false);
+
+  // Fires once after static data loads — needed so the synthetic fallback has
+  // real dates rather than an empty array.
+  useEffect(() => {
+    if (!returnsData || restoreAttemptedRef.current) return;
+    restoreAttemptedRef.current = true;
+
+    const urlState = decodeURLState(initialHashRef.current);
+    if (!urlState) {
+      restoredRef.current = true;
+      return;
+    }
+
+    const { holdings: urlHoldings, range, windowDays: urlWindowDays } = urlState;
+    setHoldings([]);
+    setCustomTickers({});
+    setRangePreset(range);
+    setWindowDays(urlWindowDays);
+
+    const refDates = returnsData.dates;
+    Promise.all(
+      urlHoldings.map(async ({ ticker }) => {
+        let fetched = await fetchTickerData(ticker, range);
+        let isSynthetic = false;
+        if (!fetched) {
+          fetched = syntheticTicker(ticker, refDates);
+          isSynthetic = true;
+        }
+        return { ticker, fetched, isSynthetic, latestPrice: fetched.closes[fetched.closes.length - 1] ?? 0 };
+      })
+    ).then((results) => {
+      const newCustomTickers: Record<string, CustomTickerEntry> = {};
+      const newHoldings: Holding[] = [];
+      for (const { ticker, fetched, isSynthetic, latestPrice } of results) {
+        newCustomTickers[ticker] = {
+          closes: fetched.closes,
+          dates: fetched.dates,
+          name: fetched.name,
+          latestPrice,
+          synthetic: isSynthetic,
+          assetType: fetched.assetType,
+        };
+        const urlHolding = urlHoldings.find((h) => h.ticker === ticker);
+        newHoldings.push({ ticker, quantity: urlHolding?.quantity ?? 0 });
+      }
+      setCustomTickers(newCustomTickers);
+      setHoldings(newHoldings);
+      restoredRef.current = true;
+    }).catch(() => {
+      restoredRef.current = true;
+    });
+  }, [returnsData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Write URL hash whenever portfolio changes, but only after restoration is done.
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    const encoded = encodeURLState(holdings, rangePreset, windowDays);
+    history.replaceState(
+      null, '',
+      encoded ? `#${encoded}` : window.location.pathname + window.location.search,
+    );
+  }, [holdings, rangePreset, windowDays]);
+
   // Re-fetch all custom tickers whenever range changes so data always covers the selected span.
   const onAddTickerRef = useRef(onAddTicker);
   onAddTickerRef.current = onAddTicker;
@@ -569,7 +641,7 @@ export default function App() {
 
         {/* Summary stats */}
         <SectionCard title="Summary Statistics">
-          <SummaryStats data={rollingCorrelation} />
+          <SummaryStats data={rollingCorrelation} series={filteredReturns.series} rangeLabel={rangePreset} />
         </SectionCard>
 
         {/* Correlation heatmap + rolling window controls */}

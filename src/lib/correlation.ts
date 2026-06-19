@@ -56,6 +56,29 @@ export function avgPairwiseCorrelation(tickers: string[], matrix: number[][]): n
   return count === 0 ? NaN : sum / count;
 }
 
+export function annualizedVol(series: number[]): number {
+  const rets = dailyReturns(series);
+  if (rets.length === 0) return NaN;
+  return stddev(rets) * Math.sqrt(252);
+}
+
+export function annualizedReturn(series: number[]): number {
+  if (series.length < 2) return NaN;
+  const totalReturn = series[series.length - 1] / series[0] - 1;
+  const n = series.length - 1;
+  return (1 + totalReturn) ** (252 / n) - 1;
+}
+
+// Sharpe ratio (0% risk-free). Computed from daily returns directly to avoid
+// mixing geometric annualization of returns with arithmetic annualization of vol.
+export function sharpe(series: number[]): number {
+  const rets = dailyReturns(series);
+  if (rets.length === 0) return NaN;
+  const vol = stddev(rets);
+  if (vol === 0) return NaN;
+  return (mean(rets) / vol) * Math.sqrt(252);
+}
+
 export function extremePairs(
   tickers: string[],
   matrix: number[][]

@@ -8,6 +8,9 @@ import {
   correlationMatrix,
   avgPairwiseCorrelation,
   extremePairs,
+  annualizedVol,
+  annualizedReturn,
+  sharpe,
 } from '../lib/correlation';
 
 describe('mean', () => {
@@ -127,5 +130,70 @@ describe('extremePairs', () => {
     expect(mostCorrelated[1]).toBe('B');
     expect(mostCorrelated[2]).toBeCloseTo(0.9, 10);
     expect(leastCorrelated[2]).toBeCloseTo(0.2, 10);
+  });
+});
+
+describe('annualizedReturn', () => {
+  it('doubles in exactly 252 trading days => 100%', () => {
+    // 253-element series: series[0]=1, series[252]=2 => (252/252) periods => 100%
+    const series = Array.from({ length: 253 }, (_, i) => 1 + i / 252);
+    expect(annualizedReturn(series)).toBeCloseTo(1.0, 4);
+  });
+
+  it('flat series => 0%', () => {
+    expect(annualizedReturn(new Array(100).fill(1.0))).toBeCloseTo(0, 10);
+  });
+
+  it('length < 2 => NaN', () => {
+    expect(annualizedReturn([1.0])).toBeNaN();
+    expect(annualizedReturn([])).toBeNaN();
+  });
+});
+
+describe('annualizedVol', () => {
+  it('constant series => 0%', () => {
+    expect(annualizedVol(new Array(100).fill(1.0))).toBeCloseTo(0, 10);
+  });
+
+  it('oscillating series => positive vol', () => {
+    const series = Array.from({ length: 101 }, (_, i) => (i % 2 === 0 ? 1.0 : 1.01));
+    expect(annualizedVol(series)).toBeGreaterThan(0);
+  });
+
+  it('empty or single element => NaN', () => {
+    expect(annualizedVol([])).toBeNaN();
+    expect(annualizedVol([1.0])).toBeNaN();
+  });
+
+  it('plausible range for a volatile series (5%–200% annual)', () => {
+    // Alternating +1%/-0.5%: meaningful daily moves, real-world-like vol
+    const series = [1.0];
+    for (let i = 1; i < 253; i++) {
+      series.push(series[i - 1] * (1 + (i % 2 === 0 ? 0.01 : -0.005)));
+    }
+    const vol = annualizedVol(series);
+    expect(vol).toBeGreaterThan(0.05);
+    expect(vol).toBeLessThan(2.0);
+  });
+});
+
+describe('sharpe', () => {
+  it('constant series => NaN (zero-vol guard)', () => {
+    expect(sharpe(new Array(100).fill(1.0))).toBeNaN();
+  });
+
+  it('empty or single element => NaN', () => {
+    expect(sharpe([])).toBeNaN();
+    expect(sharpe([1.0])).toBeNaN();
+  });
+
+  it('consistently rising series => positive Sharpe', () => {
+    const series = Array.from({ length: 100 }, (_, i) => 1 + i * 0.001);
+    expect(sharpe(series)).toBeGreaterThan(0);
+  });
+
+  it('consistently falling series => negative Sharpe', () => {
+    const series = Array.from({ length: 100 }, (_, i) => Math.max(0.01, 1 - i * 0.001));
+    expect(sharpe(series)).toBeLessThan(0);
   });
 });

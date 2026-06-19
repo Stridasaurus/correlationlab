@@ -1,73 +1,200 @@
-# React + TypeScript + Vite
+# CorrelationLab
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser-only financial portfolio analysis tool. Build a portfolio of stocks, ETFs, crypto, commodities, and forex, then explore rolling correlation matrices, cumulative returns, and per-asset risk/return statistics across time windows from 3 months to 20 years.
 
-Currently, two official plugins are available:
+**Live app:** https://stridasaurus.github.io/correlationlab/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Portfolio Builder
+- Add any ticker by typing it into the search field — supports US stocks, ETFs, mutual funds, crypto (BTC-USD, ETH-USD, etc.), commodity futures (GC, CL, SI), and forex pairs
+- Set share/unit quantities manually or load one of 8 curated preset portfolios
+- Holdings table shows live price, total value, and portfolio weight for each position
+- Remove individual holdings or clear the whole portfolio
 
-## Expanding the ESLint configuration
+### Rolling Correlation Heatmap
+- Pearson correlation matrix computed on daily returns (not price levels) for the selected rolling window
+- Window sizes: **30 / 60 / 90 / 180 days**
+- Time slider lets you scrub through history to see how correlations evolved — useful for spotting regime changes, crisis contagion, or diversification breakdowns
+- Color-coded cells: deep red (−1) → white (0) → deep blue (+1)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Cumulative Returns Chart
+- Normalized to 0% at the start of the selected period — all assets on the same scale regardless of price
+- Interactive tooltips; hovering highlights individual series
+- Includes all static default tickers and any live-fetched custom tickers
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Portfolio Value Chart
+- Simulates total portfolio performance based on your holdings and quantities
+- Shows what the combined portfolio would be worth over the selected time range
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Summary Statistics
+Three correlation stats cards plus a per-asset table:
+- **Avg pairwise correlation** — single-number portfolio concentration gauge
+- **Most / least correlated pair** — identifies the best and worst diversification pairs
+- **Per-asset annualized stats** (over the selected time range):
+  - **Return** — geometric annualized total return
+  - **Volatility** — annualized standard deviation of daily returns
+  - **Sharpe ratio** — `mean(daily returns) / stddev(daily returns) × √252` (risk-free rate = 0%)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Time Ranges
+**3M · 6M · 1Y · 2Y · 5Y · 10Y · 20Y**
+
+Ranges up to 2Y use pre-built static JSON bundled at deploy time. Ranges 5Y and beyond switch to live-fetched data — static default tickers are excluded for extended ranges, only custom-fetched tickers are shown.
+
+### Shareable URL State
+The full portfolio state (holdings, quantities, time range, and window size) is encoded in the URL hash. Copy the address bar to share an exact view — the recipient sees the same portfolio and settings on load.
+
+### Dark Mode
+Follows the OS preference automatically with a manual toggle in the header.
+
+---
+
+## Preset Portfolios
+
+Eight built-in presets covering different investment strategies and historical periods:
+
+| Preset | Tickers | Focus |
+|--------|---------|-------|
+| **Diversified Core** | SPY, BND, GLD, VWO | Classic broad-market allocation |
+| **All-Weather** | SPY, TLT, IEF, GLD, DJP | Dalio's risk-parity balance |
+| **Crypto & Equities** | SPY, QQQ, BTC-USD, ETH-USD, GLD | Growth + crypto mix |
+| **US Sectors** | XLF, XLE, XLK, XLV, XLU | Equal-weight sector rotation |
+| **2008 Crisis** | SPY, GLD, TLT, VNQ, XLF | Replay of the GFC (20Y range) |
+| **Tech Concentration** | QQQ, XLK, ARKK, SPY, VGT | Big tech + ARKK blowup |
+| **Inflation Trade** | GLD, TIP, XLE, VNQ, SPY | 2021–2023 inflation hedges |
+| **Factor Rotation** | SPY, VTV, VUG, IWM, VEA | Value vs growth vs size vs international |
+
+Each preset fetches live prices, then computes quantities so the portfolio starts at a realistic total value (inflation-adjusted for historical presets).
+
+---
+
+## Data Sources
+
+### Static JSON (default tickers, up to 2Y)
+Pre-built correlation, returns, and price data for a curated set of default tickers lives in `public/data/`. These files are generated by `scripts/fetch_data.py` (via yfinance) and refreshed automatically every weekday morning before US market open via GitHub Actions.
+
+### Live Fetch (custom tickers, all ranges)
+When you add a ticker not in the static set — or when a 5Y/10Y/20Y range is selected — data is fetched client-side from financial data APIs:
+
+- **Stooq** — primary source for stocks, ETFs, commodities, forex
+- **Yahoo Finance** — fallback, used for crypto and when Stooq fails
+
+Three public CORS proxies are tried in sequence: `corsproxy.io → allorigins.win → codetabs.com`. If all three fail, a **synthetic series** is generated deterministically from the ticker string so the UI stays functional (clearly marked as synthetic).
+
+Crypto tickers (BTC-USD, ETH-USD, etc.) bypass Stooq entirely and are mapped to proxy ETFs or fetched from Yahoo Finance.
+
+---
+
+## Development
+
+### Prerequisites
+- Node.js 20+
+
+### Install and run
+```bash
+npm install
+npm run dev          # Vite dev server at http://localhost:5173/correlationlab/
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### All commands
+```bash
+npm run dev          # start dev server with HMR
+npm run build        # TypeScript check + production bundle
+npm run test         # run all tests once
+npm run test:watch   # run tests in watch mode
+npm run lint         # ESLint
 ```
+
+Run a single test file:
+```bash
+npx vitest run src/tests/correlation.test.ts
+```
+
+---
+
+## Tech Stack
+
+| Layer | Library |
+|-------|---------|
+| UI framework | React 19 |
+| Language | TypeScript 6 |
+| Build tool | Vite 8 |
+| Charts | Recharts 3 |
+| Styling | TailwindCSS 3 (dark mode via `class`) |
+| Tests | Vitest 4 |
+| Data pipeline | Python 3.11 + yfinance |
+
+No backend. No auth. No database. Everything runs in the browser.
+
+---
+
+## Project Structure
+
+```
+src/
+├── App.tsx                     # All state, derived data chain, UI skeleton
+├── lib/
+│   ├── correlation.ts          # Pure stats: Pearson r, vol, Sharpe, etc.
+│   ├── fetchTicker.ts          # Live data fetch with proxy fallback
+│   ├── urlState.ts             # URL hash encode/decode
+│   └── types.ts                # Shared TypeScript types
+├── components/
+│   ├── CorrelationHeatmap.tsx  # Color matrix + window slider
+│   ├── ReturnsChart.tsx        # Normalized cumulative returns
+│   ├── PortfolioChart.tsx      # Combined portfolio value
+│   ├── SummaryStats.tsx        # Stat cards + per-asset vol/Sharpe table
+│   ├── HoldingsTable.tsx       # Portfolio positions editor
+│   ├── RollingCorrelationPanel.tsx
+│   └── TickerInput.tsx         # Ticker search + add
+├── tests/
+│   ├── correlation.test.ts     # Exhaustive stats unit tests
+│   ├── fetchTicker.test.ts     # Symbol normalization + asset type inference
+│   └── urlState.test.ts        # URL round-trip tests
+scripts/
+├── fetch_data.py               # Data pipeline (runs in CI)
+└── requirements.txt
+public/data/
+├── correlation.json            # Pre-computed correlation matrix
+├── returns.json                # Daily return series
+└── prices.json                 # Latest prices + metadata
+```
+
+### Derived data flow in App.tsx
+
+```
+[rangePreset, customTickers]
+        │
+        ▼
+allDates — longest custom ticker dates (extended ranges)
+         — returnsData.dates (standard ranges)
+        │
+        ▼
+mergedSeries — static ticker series (excluded in 5Y/10Y/20Y)
+             + custom tickers aligned to allDates and normalized
+        │
+        ▼
+filteredReturns — sliced to last N days for rangePreset,
+                  re-normalized to 0% at period start
+        │
+        ├──▶ rollingCorrelation — Pearson matrix over
+        │                         filteredReturns[windowEndIdx-windowDays … windowEndIdx]
+        │
+        └──▶ enrichedHoldings — holdings + price, value, weight, name, assetType
+```
+
+---
+
+## Deployment
+
+The app deploys automatically to GitHub Pages via `.github/workflows/deploy.yml` on every push to `main` and on a daily schedule (Mon–Fri, 9 AM EDT) to refresh static market data.
+
+Pipeline steps:
+1. Fetch fresh market data with `scripts/fetch_data.py` (yfinance)
+2. Copy data to `public/data/`
+3. Run tests (`npm test`)
+4. Build (`npm run build`)
+5. Push `dist/` to the `gh-pages` branch
+
+If yfinance is unavailable, the script falls back to synthetic data so the build always succeeds.
