@@ -392,7 +392,7 @@ export default function App() {
 
     const urlState = decodeURLState(initialHashRef.current);
     if (!urlState) {
-      restoredRef.current = true;
+      onLoadPreset(PRESETS[0]).then(() => { restoredRef.current = true; });
       return;
     }
 
