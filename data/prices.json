@@ -1,0 +1,30 @@
+{
+  "tickers": {
+    "PRFDX": {
+      "price": 44.45000076293945,
+      "name": "T. Rowe Price Equity Income Fund",
+      "type": "Mutual Fund"
+    },
+    "PRNHX": {
+      "price": 54.970001220703125,
+      "name": "T. Rowe Price New Horizons Fund",
+      "type": "Mutual Fund"
+    },
+    "TRBCX": {
+      "price": 221.05999755859375,
+      "name": "T. Rowe Price Blue Chip Growth Fund",
+      "type": "Mutual Fund"
+    },
+    "VOO": {
+      "price": 715.6699829101562,
+      "name": "Vanguard S&P 500 ETF",
+      "type": "ETF"
+    },
+    "VXUS": {
+      "price": 84.71499633789062,
+      "name": "Vanguard Total International Stock ETF",
+      "type": "ETF"
+    }
+  },
+  "synthetic": false
+}
